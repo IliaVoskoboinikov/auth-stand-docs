@@ -125,13 +125,11 @@ paths:
       description: |
         Всегда отвечает 200: на протухший, неизвестный или отсутствующий токен —
         `{"is_valid": false}`. `is_valid` — boolean, объявляйте как `Boolean`.
-      parameters:
-        - name: Authorization
-          in: header
-          required: true
-          schema:
-            type: string
-            example: Bearer qbAwrHtAbV1Ec9UA4xbFRzH7SiYIlHekPU3wRbJEAyxak4lk1
+
+        Токен передаётся заголовком `Authorization: Bearer <access_token>`. В Swagger UI
+        нажмите **Authorize** и вставьте сам токен, без слова `Bearer`.
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: Ответ «да/нет»
@@ -172,6 +170,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 components:
+  # Заголовок Authorization в OpenAPI 3 описывается только схемой безопасности:
+  # параметр-заголовок с этим именем Swagger UI молча не отправляет.
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: access_token из ответа registration, login или refresh
   parameters:
     DebugAccessTtl:
       name: X-Debug-Access-Ttl
