@@ -1,0 +1,248 @@
+openapi: 3.0.3
+info:
+  title: Auth API — учебный стенд
+  version: "1.1"
+  description: |
+    Тестовый стенд авторизации для мобильного ТЗ (версия 1.1).
+    Памятка для студентов: [STUDENT.html](STUDENT.html).
+
+    **Базовый URL в Retrofit:** `https://faiwlkhyssrgofauzegs.supabase.co/functions/v1/`
+
+    Пути в Retrofit пишутся **без ведущего слеша**: `@POST("auth/login")`, а не
+    `@POST("/auth/login")`. Со слешем Retrofit отбросит `/functions/v1/` из `baseUrl`,
+    и запрос получит 401 от шлюза Supabase, а не ответ стенда.
+
+    - access-токен живёт 15 минут, refresh-токен — 30 дней;
+    - письма восстановления реально не отправляются;
+    - аккаунты не удаляются.
+servers:
+  - url: https://faiwlkhyssrgofauzegs.supabase.co/functions/v1
+tags:
+  - name: auth
+paths:
+  /auth/registration:
+    post:
+      tags: [auth]
+      summary: Регистрация
+      description: |
+        Порядок проверок: тело → email → длина пароля → занятость email.
+        Если некорректны и email, и пароль, вернётся `INVALID_EMAIL`.
+      parameters:
+        - $ref: "#/components/parameters/DebugAccessTtl"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+      responses:
+        "201":
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Пользователь уже существует (`USER_EXISTS`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Авторизация
+      description: |
+        Длина пароля проверяется до учётных данных: пароль короче 7 символов даёт
+        400, а не 401. Каждый вход создаёт новую сессию, старые продолжают работать.
+      parameters:
+        - $ref: "#/components/parameters/DebugAccessTtl"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+      responses:
+        "200":
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Неверный email или пароль (`INVALID_CREDENTIALS`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Обновление токена
+      description: |
+        Возвращает новую пару токенов, без `user_id`. Предыдущий refresh-токен ещё
+        60 секунд после обновления возвращает текущую пару — на случай
+        параллельных запросов.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  example: k77V6bTYlAiXNRejTbEkyKfvPeQoyL75ifOpfb5vG4AHSA8Yl
+      responses:
+        "200":
+          description: Новая пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          description: В теле нет строкового поля `refresh_token` (`INVALID_BODY`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Refresh-токен неизвестен, отозван или истёк (`INVALID_REFRESH_TOKEN`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /auth/check:
+    get:
+      tags: [auth]
+      summary: Проверка валидности токена
+      description: |
+        Всегда отвечает 200: на протухший, неизвестный или отсутствующий токен —
+        `{"is_valid": false}`. `is_valid` — boolean, объявляйте как `Boolean`.
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+            example: Bearer qbAwrHtAbV1Ec9UA4xbFRzH7SiYIlHekPU3wRbJEAyxak4lk1
+      responses:
+        "200":
+          description: Ответ «да/нет»
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [is_valid]
+                properties:
+                  is_valid:
+                    type: boolean
+                    example: true
+  /auth/recovery:
+    post:
+      tags: [auth]
+      summary: Восстановление пароля
+      description: |
+        Email передаётся **HTTP-заголовком** `email`. Письмо реально не
+        отправляется; ответ 200 не зависит от того, есть ли такой пользователь.
+      parameters:
+        - name: email
+          in: header
+          required: true
+          schema:
+            type: string
+            example: test@gmail.com
+      responses:
+        "200":
+          description: Запрос принят
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Некорректный email (`INVALID_EMAIL`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  parameters:
+    DebugAccessTtl:
+      name: X-Debug-Access-Ttl
+      in: header
+      required: false
+      description: |
+        Для отладки рефреша: срок жизни access-токена в секундах (5–900). Действует
+        на все токены этой сессии, включая выданные при рефреше.
+      schema:
+        type: integer
+        minimum: 5
+        maximum: 900
+  responses:
+    BadRequest:
+      description: |
+        `INVALID_BODY` — тело не JSON или нет обязательного поля;
+        `INVALID_EMAIL` — некорректный email;
+        `PASSWORD_TOO_SHORT` — пароль менее 7 символов;
+        `PASSWORD_TOO_LONG` — пароль длиннее 128 символов.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          example: test@gmail.com
+        password:
+          type: string
+          example: "1234567"
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token]
+      properties:
+        access_token:
+          type: string
+          example: qbAwrHtAbV1Ec9UA4xbFRzH7SiYIlHekPU3wRbJEAyxak4lk1
+        refresh_token:
+          type: string
+          example: k77V6bTYlAiXNRejTbEkyKfvPeQoyL75ifOpfb5vG4AHSA8Yl
+    AuthResponse:
+      allOf:
+        - $ref: "#/components/schemas/TokenPair"
+        - type: object
+          required: [user_id]
+          properties:
+            user_id:
+              type: integer
+              format: int64
+              example: 1
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_EMAIL
+            - PASSWORD_TOO_SHORT
+            - PASSWORD_TOO_LONG
+            - INVALID_BODY
+            - USER_EXISTS
+            - INVALID_CREDENTIALS
+            - INVALID_REFRESH_TOKEN
+            - NOT_FOUND
+            - METHOD_NOT_ALLOWED
+            - INTERNAL_ERROR
+        message:
+          type: string
+          example: Пользователь с таким email уже существует
